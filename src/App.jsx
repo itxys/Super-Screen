@@ -33,8 +33,7 @@ function App() {
 function FloatingControls() {
   const { recordingState, setRecordingState } = useApp()
   const [isDragging, setIsDragging] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const barRef = useRef(null)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60)
@@ -42,28 +41,17 @@ function FloatingControls() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
   }
 
-  useEffect(() => {
-    if (window.electronAPI) {
-      window.electronAPI.onToggleRecording(() => {
-        console.log('Toggle recording triggered')
-      })
-    }
-  }, [])
-
   const handleMouseDown = (e) => {
+    if (e.target.closest('.floating-controls')) return
     setIsDragging(true)
-    setDragOffset({
-      x: e.clientX,
-      y: e.clientY
-    })
+    setDragStart({ x: e.screenX, y: e.screenY })
   }
 
   const handleMouseMove = (e) => {
-    if (isDragging && window.electronAPI) {
-      const newX = e.screenX - dragOffset.x
-      const newY = e.screenY - dragOffset.y
-      window.electronAPI.moveFloatingWindow(newX, newY)
-    }
+    if (!isDragging || !window.electronAPI) return
+    const x = e.screenX - 140
+    const y = e.screenY - 25
+    window.electronAPI.moveFloatingWindow(x, y)
   }
 
   const handleMouseUp = () => {
@@ -73,7 +61,6 @@ function FloatingControls() {
   return (
     <div 
       className="floating-bar"
-      ref={barRef}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -97,12 +84,18 @@ function FloatingControls() {
               <button 
                 className="floating-btn pause"
                 title={recordingState.isPaused ? "继续" : "暂停"}
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('floating-pause'))
+                }}
               >
                 {recordingState.isPaused ? '▶' : '⏸'}
               </button>
               <button 
                 className="floating-btn stop"
                 title="停止"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('floating-stop'))
+                }}
               >
                 ⏹
               </button>
@@ -111,6 +104,9 @@ function FloatingControls() {
             <button 
               className="floating-btn record"
               title="开始录制"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('floating-start'))
+              }}
             >
               ⏺
             </button>
@@ -133,7 +129,6 @@ function MainWindow() {
   const { recordingState, setRecordingState } = useApp()
   const [activeTab, setActiveTab] = useState('record')
   const [sources, setSources] = useState([])
-  const [selectedSource, setSelectedSource] = useState(null)
   const [showSourcePicker, setShowSourcePicker] = useState(false)
   const [settings, setSettings] = useState({
     cameraEnabled: false,
@@ -145,13 +140,21 @@ function MainWindow() {
     zoomOnClick: true,
     spotlight: false,
     cursorEffect: true,
-    showKeys: false
+    showKeys: false,
+    videoQuality: 'high',
+    videoFormat: 'webm'
   })
   
   const [stream, setStream] = useState(null)
   const [recordedVideo, setRecordedVideo] = useState(null)
   const [recordings, setRecordings] = useState([])
   const [recordingDuration, setRecordingDuration] = useState(0)
+  const [editingVideo, setEditingVideo] = useState(null)
+  const [exportSettings, setExportSettings] = useState({
+    format: 'webm',
+    quality: 'high',
+    resolution: 'original'
+  })
   
   const previewCanvasRef = useRef(null)
   const renderCanvasRef = useRef(null)
@@ -171,10 +174,30 @@ function MainWindow() {
   const zoomAnimationRef = useRef(null)
 
   useEffect(() => {
-    return () => {
-      cleanup()
-    }
+    return () => cleanup()
   }, [])
+
+  useEffect(() => {
+    const handleFloatingStart = () => {
+      if (!recordingState.sourceSelected) {
+        getScreenSources()
+      } else if (!recordingState.isRecording) {
+        startRecording()
+      }
+    }
+    const handleFloatingPause = () => pauseRecording()
+    const handleFloatingStop = () => stopRecording()
+
+    window.addEventListener('floating-start', handleFloatingStart)
+    window.addEventListener('floating-pause', handleFloatingPause)
+    window.addEventListener('floating-stop', handleFloatingStop)
+
+    return () => {
+      window.removeEventListener('floating-start', handleFloatingStart)
+      window.removeEventListener('floating-pause', handleFloatingPause)
+      window.removeEventListener('floating-stop', handleFloatingStop)
+    }
+  }, [recordingState])
 
   const cleanup = useCallback(() => {
     if (canvasStreamRef.current) {
@@ -445,9 +468,14 @@ function MainWindow() {
     if (!stream) return
 
     recordedChunksRef.current = []
-    const options = { mimeType: 'video/webm;codecs=vp9' }
+    
+    let mimeType = 'video/webm;codecs=vp9'
+    if (settings.videoFormat === 'mp4') {
+      mimeType = 'video/mp4'
+    }
+    
     try {
-      mediaRecorderRef.current = new MediaRecorder(stream, options)
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType })
     } catch (e) {
       mediaRecorderRef.current = new MediaRecorder(stream)
     }
@@ -457,13 +485,14 @@ function MainWindow() {
     }
 
     mediaRecorderRef.current.onstop = () => {
-      const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
+      const blob = new Blob(recordedChunksRef.current, { type: mediaRecorderRef.current.mimeType })
       const url = URL.createObjectURL(blob)
       const newRecording = {
         id: Date.now(),
         url,
         duration: recordingDuration,
-        date: new Date().toLocaleString()
+        date: new Date().toLocaleString(),
+        format: settings.videoFormat
       }
       setRecordings(prev => [newRecording, ...prev])
       setRecordedVideo(url)
@@ -481,7 +510,7 @@ function MainWindow() {
     }, 1000)
     
     updateFloatingState()
-  }, [stream, recordingDuration])
+  }, [stream, settings.videoFormat, recordingDuration])
 
   const pauseRecording = () => {
     if (mediaRecorderRef.current?.state === 'recording') {
@@ -511,11 +540,74 @@ function MainWindow() {
     updateFloatingState()
   }, [])
 
-  const downloadVideo = (url) => {
+  const exportVideo = async (recording, options) => {
+    const { format, quality, resolution } = options
+    
+    const video = document.createElement('video')
+    video.src = recording.url
+    await new Promise(resolve => video.onloadedmetadata = resolve)
+
+    const canvas = document.createElement('canvas')
+    let width = video.videoWidth
+    let height = video.videoHeight
+
+    if (resolution === '1080p') {
+      height = 1080
+      width = Math.round(1920 * (height / video.videoHeight))
+    } else if (resolution === '720p') {
+      height = 720
+      width = Math.round(1920 * (height / video.videoHeight))
+    } else if (resolution === '480p') {
+      height = 480
+      width = Math.round(1920 * (height / video.videoHeight))
+    }
+
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0, width, height)
+
+    const mimeType = format === 'mp4' ? 'video/mp4' : 'video/webm'
+    const exportStream = canvas.captureStream(30)
+    
+    const finalBlob = await new Promise(resolve => {
+      const exportRecorder = new MediaRecorder(exportStream, { mimeType })
+      const chunks = []
+      exportRecorder.ondataavailable = e => chunks.push(e.data)
+      exportRecorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }))
+      exportRecorder.start()
+      
+      video.currentTime = 0
+      video.play()
+      
+      const drawFrame = () => {
+        if (video.currentTime < video.duration) {
+          ctx.drawImage(video, 0, 0, width, height)
+          requestAnimationFrame(drawFrame)
+        } else {
+          exportRecorder.stop()
+          video.pause()
+        }
+      }
+      drawFrame()
+    })
+
+    const url = URL.createObjectURL(finalBlob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `super-screen-${Date.now()}.webm`
+    a.download = `super-screen-export-${Date.now()}.${format}`
     a.click()
+  }
+
+  const downloadVideo = (url, format = 'webm') => {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `super-screen-${Date.now()}.${format}`
+    a.click()
+  }
+
+  const deleteRecording = (id) => {
+    setRecordings(prev => prev.filter(r => r.id !== id))
   }
 
   const formatTime = (seconds) => {
@@ -599,7 +691,7 @@ function MainWindow() {
               {recordedVideo && (
                 <div className="recorded-result">
                   <video src={recordedVideo} controls />
-                  <button className="btn btn-primary" onClick={() => downloadVideo(recordedVideo)}>
+                  <button className="btn btn-primary" onClick={() => downloadVideo(recordedVideo, settings.videoFormat)}>
                     💾 下载
                   </button>
                   <button className="btn btn-secondary" onClick={() => setRecordedVideo(null)}>
@@ -624,8 +716,19 @@ function MainWindow() {
                     <div className="recording-info">
                       <span>{formatTime(rec.duration)}</span>
                       <span>{rec.date}</span>
+                      <span className="format-tag">{rec.format}</span>
                     </div>
-                    <button onClick={() => downloadVideo(rec.url)}>下载</button>
+                    <div className="recording-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => downloadVideo(rec.url, rec.format)}>
+                        下载
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setEditingVideo(rec)}>
+                        导出
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => deleteRecording(rec.id)}>
+                        删除
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -637,6 +740,25 @@ function MainWindow() {
           <div className="settings-page">
             <h3>录制设置</h3>
             
+            <div className="settings-group">
+              <h4>输出格式</h4>
+              <label className="select-item">
+                <span>视频格式</span>
+                <select value={settings.videoFormat} onChange={e => updateSetting('videoFormat', e.target.value)}>
+                  <option value="webm">WebM (推荐)</option>
+                  <option value="mp4">MP4</option>
+                </select>
+              </label>
+              <label className="select-item">
+                <span>视频质量</span>
+                <select value={settings.videoQuality} onChange={e => updateSetting('videoQuality', e.target.value)}>
+                  <option value="high">高清 (1080p)</option>
+                  <option value="medium">标清 (720p)</option>
+                  <option value="low">流畅 (480p)</option>
+                </select>
+              </label>
+            </div>
+
             <div className="settings-group">
               <h4>音频</h4>
               <label className="toggle-item">
@@ -720,6 +842,49 @@ function MainWindow() {
             <button className="btn btn-secondary" onClick={() => { setShowSourcePicker(false); startScreenCapture() }}>
               使用浏览器选择器
             </button>
+          </div>
+        </div>
+      )}
+
+      {editingVideo && (
+        <div className="modal-overlay" onClick={() => setEditingVideo(null)}>
+          <div className="modal export-modal" onClick={e => e.stopPropagation()}>
+            <h2>导出视频</h2>
+            <div className="export-options">
+              <label className="select-item">
+                <span>格式</span>
+                <select value={exportSettings.format} onChange={e => setExportSettings(s => ({ ...s, format: e.target.value }))}>
+                  <option value="webm">WebM</option>
+                  <option value="mp4">MP4</option>
+                </select>
+              </label>
+              <label className="select-item">
+                <span>分辨率</span>
+                <select value={exportSettings.resolution} onChange={e => setExportSettings(s => ({ ...s, resolution: e.target.value }))}>
+                  <option value="original">原始</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                </select>
+              </label>
+              <label className="select-item">
+                <span>质量</span>
+                <select value={exportSettings.quality} onChange={e => setExportSettings(s => ({ ...s, quality: e.target.value }))}>
+                  <option value="high">高</option>
+                  <option value="medium">中</option>
+                  <option value="low">低</option>
+                </select>
+              </label>
+            </div>
+            <div className="export-preview">
+              <video src={editingVideo.url} controls />
+            </div>
+            <div className="export-actions">
+              <button className="btn btn-secondary" onClick={() => setEditingVideo(null)}>取消</button>
+              <button className="btn btn-primary" onClick={() => exportVideo(editingVideo, exportSettings)}>
+                导出视频
+              </button>
+            </div>
           </div>
         </div>
       )}

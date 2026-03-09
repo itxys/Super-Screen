@@ -513,3 +513,52 @@ body {
 .floating-btn:active {
   transform: scale(0.95);
 }
+
+/* Export Modal */
+.export-modal {
+  max-width: 600px;
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.export-preview {
+  margin-bottom: 20px;
+}
+
+.export-preview video {
+  width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+}
+
+.export-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.format-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--primary);
+  color: var(--bg-dark);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.recording-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
