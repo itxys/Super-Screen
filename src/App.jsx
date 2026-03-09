@@ -21,6 +21,8 @@ function App() {
   const [isStarting, setIsStarting] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(1)
   const [showZoomIndicator, setShowZoomIndicator] = useState(false)
+  const [showSourcePicker, setShowSourcePicker] = useState(false)
+  const [sources, setSources] = useState([])
   
   const previewCanvasRef = useRef(null)
   const renderCanvasRef = useRef(null)
@@ -74,20 +76,57 @@ function App() {
     }
   }, [cameraStream])
 
-  const startScreenCapture = async () => {
+  const getScreenSources = async () => {
+    if (window.electronAPI) {
+      const electronSources = await window.electronAPI.getDesktopSources()
+      setSources(electronSources)
+      setShowSourcePicker(true)
+    } else {
+      startScreenCapture()
+    }
+  }
+
+  const selectSource = async (sourceId) => {
+    setShowSourcePicker(false)
+    await startScreenCapture(sourceId)
+  }
+
+  const startScreenCapture = async (sourceId = null) => {
     if (isStarting) return
     setIsStarting(true)
 
     try {
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          displaySurface: 'monitor',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 }
-        },
-        audio: settings.systemAudio
-      })
+      let displayStream
+      
+      if (sourceId) {
+        displayStream = await navigator.mediaDevices.getUserMedia({
+          audio: settings.systemAudio ? {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          } : false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              maxWidth: 1920,
+              maxHeight: 1080,
+              maxFrameRate: 30
+            }
+          }
+        })
+      } else {
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            displaySurface: 'monitor',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 }
+          },
+          audio: settings.systemAudio
+        })
+      }
 
       const video = document.createElement('video')
       video.srcObject = displayStream
@@ -500,7 +539,7 @@ function App() {
       <main className="main">
         <div className="preview-area">
           {!stream && !recordedVideo && (
-            <div className="empty-state" onClick={startScreenCapture}>
+            <div className="empty-state" onClick={getScreenSources}>
               <div className="empty-icon">📺</div>
               <h2>点击选择屏幕源开始录制</h2>
               <p>支持全屏、窗口或区域录制</p>
@@ -550,7 +589,7 @@ function App() {
           {!stream ? (
             <button 
               className="btn btn-primary btn-large" 
-              onClick={startScreenCapture}
+              onClick={getScreenSources}
               disabled={isStarting}
             >
               {isStarting ? '请在弹窗中选择...' : '选择屏幕源'}
@@ -589,6 +628,32 @@ function App() {
           )}
         </div>
       </main>
+
+      {showSourcePicker && (
+        <div className="modal-overlay" onClick={() => setShowSourcePicker(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>选择屏幕源</h2>
+            <div className="source-grid">
+              {sources.map(source => (
+                <div 
+                  key={source.id} 
+                  className="source-item"
+                  onClick={() => selectSource(source.id)}
+                >
+                  <img src={source.thumbnail} alt={source.name} />
+                  <span>{source.name}</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn btn-secondary" onClick={() => {
+              setShowSourcePicker(false)
+              startScreenCapture()
+            }}>
+              使用浏览器选择器
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
