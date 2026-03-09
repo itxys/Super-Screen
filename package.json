@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "description": "智能录屏工具 - 支持自动缩放、鼠标特效、摄像头布局",
   "main": "electron/main.js",
+  "author": "Super Screen Team",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -38,17 +39,21 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": ["x64"]
         }
-      ],
-      "icon": "public/icon.ico"
+      ]
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     }
   }
 }
