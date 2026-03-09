@@ -562,3 +562,71 @@ body {
   font-size: 12px;
 }
 
+.export-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.export-tabs button {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-darker);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.export-tabs button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.export-tabs button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.export-tabs button.active {
+  background: var(--primary);
+  color: var(--bg-dark);
+  border-color: var(--primary);
+}
+
+.trim-controls {
+  margin-bottom: 20px;
+}
+
+.trim-time {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.trim-time label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trim-time label span {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.trim-time input {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-darker);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.trim-duration {
+  text-align: center;
+  font-size: 14px;
+  color: var(--primary);
+}
+

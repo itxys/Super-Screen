@@ -155,6 +155,11 @@ function MainWindow() {
     quality: 'high',
     resolution: 'original'
   })
+  const [trimSettings, setTrimSettings] = useState({
+    startTime: 0,
+    endTime: 0,
+    enabled: false
+  })
   
   const previewCanvasRef = useRef(null)
   const renderCanvasRef = useRef(null)
@@ -599,6 +604,57 @@ function MainWindow() {
     a.click()
   }
 
+  const trimVideo = async (recording, options) => {
+    const { startTime, endTime } = options
+    
+    const video = document.createElement('video')
+    video.src = recording.url
+    await new Promise(resolve => video.onloadedmetadata = resolve)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    const ctx = canvas.getContext('2d')
+
+    const startMs = startTime * 1000
+    const endMs = endTime * 1000
+    const duration = endMs - startMs
+
+    const mimeType = 'video/webm'
+    const stream = canvas.captureStream(30)
+    
+    const finalBlob = await new Promise(resolve => {
+      const recorder = new MediaRecorder(stream, { mimeType })
+      const chunks = []
+      recorder.ondataavailable = e => chunks.push(e.data)
+      recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }))
+      recorder.start()
+      
+      video.currentTime = startTime
+      video.play()
+      
+      const startMs = Date.now()
+      
+      const drawFrame = () => {
+        const elapsed = Date.now() - startMs
+        if (elapsed < duration) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          requestAnimationFrame(drawFrame)
+        } else {
+          recorder.stop()
+          video.pause()
+        }
+      }
+      drawFrame()
+    })
+
+    const url = URL.createObjectURL(finalBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `super-screen-trim-${Date.now()}.webm`
+    a.click()
+  }
+
   const downloadVideo = (url, format = 'webm') => {
     const a = document.createElement('a')
     a.href = url
@@ -850,41 +906,104 @@ function MainWindow() {
         <div className="modal-overlay" onClick={() => setEditingVideo(null)}>
           <div className="modal export-modal" onClick={e => e.stopPropagation()}>
             <h2>导出视频</h2>
-            <div className="export-options">
-              <label className="select-item">
-                <span>格式</span>
-                <select value={exportSettings.format} onChange={e => setExportSettings(s => ({ ...s, format: e.target.value }))}>
-                  <option value="webm">WebM</option>
-                  <option value="mp4">MP4</option>
-                </select>
-              </label>
-              <label className="select-item">
-                <span>分辨率</span>
-                <select value={exportSettings.resolution} onChange={e => setExportSettings(s => ({ ...s, resolution: e.target.value }))}>
-                  <option value="original">原始</option>
-                  <option value="1080p">1080p</option>
-                  <option value="720p">720p</option>
-                  <option value="480p">480p</option>
-                </select>
-              </label>
-              <label className="select-item">
-                <span>质量</span>
-                <select value={exportSettings.quality} onChange={e => setExportSettings(s => ({ ...s, quality: e.target.value }))}>
-                  <option value="high">高</option>
-                  <option value="medium">中</option>
-                  <option value="low">低</option>
-                </select>
-              </label>
-            </div>
-            <div className="export-preview">
-              <video src={editingVideo.url} controls />
-            </div>
-            <div className="export-actions">
-              <button className="btn btn-secondary" onClick={() => setEditingVideo(null)}>取消</button>
-              <button className="btn btn-primary" onClick={() => exportVideo(editingVideo, exportSettings)}>
-                导出视频
+            <div className="export-tabs">
+              <button 
+                className={!trimSettings.enabled ? 'active' : ''}
+                onClick={() => setTrimSettings(s => ({ ...s, enabled: false }))}
+              >
+                导出
+              </button>
+              <button 
+                className={trimSettings.enabled ? 'active' : ''}
+                onClick={() => {
+                  const videoEl = document.querySelector('.export-preview video')
+                  if (videoEl) {
+                    setTrimSettings(s => ({ 
+                      ...s, 
+                      enabled: true, 
+                      endTime: videoEl.duration || 0 
+                    }))
+                  }
+                }}
+              >
+                裁剪
               </button>
             </div>
+            
+            {!trimSettings.enabled ? (
+              <>
+                <div className="export-options">
+                  <label className="select-item">
+                    <span>格式</span>
+                    <select value={exportSettings.format} onChange={e => setExportSettings(s => ({ ...s, format: e.target.value }))}>
+                      <option value="webm">WebM</option>
+                      <option value="mp4">MP4</option>
+                    </select>
+                  </label>
+                  <label className="select-item">
+                    <span>分辨率</span>
+                    <select value={exportSettings.resolution} onChange={e => setExportSettings(s => ({ ...s, resolution: e.target.value }))}>
+                      <option value="original">原始</option>
+                      <option value="1080p">1080p</option>
+                      <option value="720p">720p</option>
+                      <option value="480p">480p</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="export-preview">
+                  <video src={editingVideo.url} controls />
+                </div>
+                <div className="export-actions">
+                  <button className="btn btn-secondary" onClick={() => setEditingVideo(null)}>取消</button>
+                  <button className="btn btn-primary" onClick={() => exportVideo(editingVideo, exportSettings)}>
+                    导出视频
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="trim-controls">
+                  <div className="trim-time">
+                    <label>
+                      <span>开始 (秒)</span>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        step="0.1"
+                        value={trimSettings.startTime}
+                        onChange={e => setTrimSettings(s => ({ ...s, startTime: parseFloat(e.target.value) || 0 }))}
+                      />
+                    </label>
+                    <label>
+                      <span>结束 (秒)</span>
+                      <input 
+                        type="number" 
+                        min={trimSettings.startTime} 
+                        step="0.1"
+                        value={trimSettings.endTime}
+                        onChange={e => setTrimSettings(s => ({ ...s, endTime: parseFloat(e.target.value) || 0 }))}
+                      />
+                    </label>
+                  </div>
+                  <div className="trim-duration">
+                    裁剪后时长: {formatTime(Math.max(0, trimSettings.endTime - trimSettings.startTime))}
+                  </div>
+                </div>
+                <div className="export-preview">
+                  <video src={editingVideo.url} controls />
+                </div>
+                <div className="export-actions">
+                  <button className="btn btn-secondary" onClick={() => setEditingVideo(null)}>取消</button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => trimVideo(editingVideo, trimSettings)}
+                    disabled={trimSettings.endTime <= trimSettings.startTime}
+                  >
+                    裁剪并导出
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
